@@ -16,7 +16,7 @@ The secret contains `DTRACK_URL` and `DTRACK_API_KEY`, the variable names read b
 ## Requirements
 
 - `bash`, `curl`, `jq`, `kubectl` and `base64` in the container. The `alpine/k8s` image has all of them.
-- A freshly deployed Dependency-Track whose `admin` account still has the default password. No API key is needed up front.
+- Either a freshly deployed Dependency-Track whose `admin` account still has the default password (no credentials needed up front), or, for an instance that is already set up, `DTRACK_ADMIN_PASSWORD` or `DTRACK_ADMIN_API_KEY`.
 - A service account that may `get`, `create` and `patch` secrets in the target namespace.
 
 ## Configuration
@@ -47,6 +47,16 @@ On first contact the default `admin`/`admin` login answers `401 FORCE_PASSWORD_C
 - If `admin`/`admin` is accepted without a forced change, the script refuses to continue, because that state is unexpected.
 
 The admin password secret is the way back into the Dependency-Track UI: `kubectl get secret dtrack-admin-credentials -o jsonpath='{.data.password}' | base64 -d`.
+
+## Existing instances
+
+On an instance that was already set up, the script never changes the admin password. Give it `DTRACK_ADMIN_PASSWORD` (the current password) or `DTRACK_ADMIN_API_KEY` and it reconciles instead of stopping:
+
+- An existing team is reused, and only missing permissions are added. Permissions are never removed.
+- A key secret that holds a working key is left alone.
+- If the team exists but the key secret is missing, or its key was revoked, a new key is created and the secret is written. Existing keys are not touched.
+
+Without credentials the script exits with an error before changing or storing anything.
 
 ## Running it in Kubernetes
 
@@ -140,6 +150,10 @@ The existing key is checked with `GET /api/v1/team/self`. If that endpoint answe
 - Passwords, tokens and API keys are never logged and never appear in a process listing. curl reads credentials from stdin and secrets reach `kubectl` through a piped manifest.
 - Anyone who can read the admin secret has full control of Dependency-Track, and anyone who can read the key secret has the team's key. Restrict access with RBAC.
 - The Role in the example can read every secret in the namespace. Narrow it with `resourceNames` once the secret names are fixed (`create` cannot be limited by name).
+
+## Status
+
+Tested against a mock Dependency-Track and a fake `kubectl`, not yet against a real instance. The endpoints (`/api/v1/user/login`, `/api/v1/user/forceChangePassword`, `/api/v1/team`, `/api/v1/team/{uuid}/key`, `/api/v1/team/self`) follow the v1 API as documented for v4 and checked against the v5 breaking-changes page. Report anything that differs on your version.
 
 ## Local use
 
