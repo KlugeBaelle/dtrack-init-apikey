@@ -212,7 +212,12 @@ resolve_admin_password() {
     return
   fi
 
-  log "generating admin password and storing it in secret $NAMESPACE/$ADMIN_SECRET_NAME"
+  admin_login "$DEFAULT_ADMIN_PASSWORD"
+  if [[ "$HTTP_STATUS" != 401 || "$HTTP_BODY" != *FORCE_PASSWORD_CHANGE* ]]; then
+    fail "Dependency-Track is already initialized and no admin credentials were given; set DTRACK_ADMIN_PASSWORD or DTRACK_ADMIN_API_KEY"
+  fi
+
+  log "fresh instance, generating admin password and storing it in secret $NAMESPACE/$ADMIN_SECRET_NAME"
   local generated
   generated=$(generate_password)
   [[ ${#generated} -eq 32 ]] || fail "could not generate a password"

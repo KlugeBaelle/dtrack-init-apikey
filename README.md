@@ -42,7 +42,8 @@ On first contact the default `admin`/`admin` login answers `401 FORCE_PASSWORD_C
 
 - With `DTRACK_ADMIN_PASSWORD` set, that password is used.
 - Without it, the script generates a 32 character password and stores it in the secret `ADMIN_SECRET_NAME` before touching Dependency-Track. A crash in between can therefore never leave an admin account nobody knows the password of. Later runs read the password from that secret.
-- If neither the configured nor the default password works, someone changed it. The script stops with an error instead of guessing.
+- On an instance that is already initialized, without `DTRACK_ADMIN_PASSWORD` or `DTRACK_ADMIN_API_KEY`, the script stops with an error before it changes or stores anything. No admin secret is created in that case.
+- If the configured password does not work and the default one does not either, someone changed it. The script stops with an error instead of guessing.
 - If `admin`/`admin` is accepted without a forced change, the script refuses to continue, because that state is unexpected.
 
 The admin password secret is the way back into the Dependency-Track UI: `kubectl get secret dtrack-admin-credentials -o jsonpath='{.data.password}' | base64 -d`.
@@ -126,6 +127,7 @@ envFrom:
 |---|---|
 | First run on a fresh instance | Sets the admin password, creates team, grants permissions, creates key, writes both secrets. |
 | Rerun, secret holds a working key | No changes. |
+| Instance already initialized, no admin credentials given | Fails before changing anything. Provide `DTRACK_ADMIN_PASSWORD` or `DTRACK_ADMIN_API_KEY`. |
 | Admin password was changed outside the script | Fails with an error. Fix the stored password or `DTRACK_ADMIN_PASSWORD`. |
 | Rerun, key in the secret was revoked or belongs to another team | Creates a new key and overwrites the secret. |
 | Team exists, secret missing | Reuses the team, creates a key, writes the secret. |
