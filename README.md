@@ -35,10 +35,21 @@ All settings are environment variables.
 | `SECRET_NAME` | `dtrack-<team>-api-key` | Secret that receives the key. Lowercased, invalid characters become `-`. |
 | `NAMESPACE` | the pod's namespace | Namespace of that secret. |
 | `WAIT_TIMEOUT_SECONDS` | `300` | How long to wait for the API to become ready. |
+| `ADMIN_WAIT_SECONDS` | `60` | How long to keep retrying while the default admin account is rejected, in case a fresh instance has not created it yet. |
+| `LOG_LEVEL` | `debug` | `debug` logs every HTTP request, status, content type, timing and response body plus every `kubectl` call. `info` logs the steps only. |
 
 ## Admin account
 
-On first contact the default `admin`/`admin` login answers `401 FORCE_PASSWORD_CHANGE`. The script then changes the password through `/api/v1/user/forceChangePassword` and logs in with the JWT it gets back.
+The script classifies the default `admin`/`admin` login:
+
+| Answer | Meaning | Action |
+|---|---|---|
+| `401 FORCE_PASSWORD_CHANGE` | fresh install | Change the password, log in. |
+| `200` | default password works, no change forced | Warn, change the password anyway, log in. |
+| `401 INVALID_CREDENTIALS` | account has another password, or does not exist yet | Retry for `ADMIN_WAIT_SECONDS`, then treat the instance as already set up. |
+| anything else | unexpected | Stop and print the status and body. |
+
+The password change goes through `/api/v1/user/forceChangePassword`, followed by a normal login that returns the JWT.
 
 - With `DTRACK_ADMIN_PASSWORD` set, that password is used.
 - Without it, the script generates a 32 character password and stores it in the secret `ADMIN_SECRET_NAME` before touching Dependency-Track. A crash in between can therefore never leave an admin account nobody knows the password of. Later runs read the password from that secret.
@@ -150,6 +161,25 @@ The existing key is checked with `GET /api/v1/team/self`. If that endpoint answe
 - Passwords, tokens and API keys are never logged and never appear in a process listing. curl reads credentials from stdin and secrets reach `kubectl` through a piped manifest.
 - Anyone who can read the admin secret has full control of Dependency-Track, and anyone who can read the key secret has the team's key. Restrict access with RBAC.
 - The Role in the example can read every secret in the namespace. Narrow it with `resourceNames` once the secret names are fixed (`create` cannot be limited by name).
+
+## Logging and troubleshooting
+
+The default log level is `debug`. Each step is announced (`== 2/5 admin session ==`), and every request is logged:
+
+```
+DEBUG -> POST http://dtrack:8080/api/v1/user/login
+DEBUG    form fields: username password (values hidden)
+DEBUG <- HTTP 401, content-type 'text/plain', 21 bytes in 0.012s
+DEBUG    response body: FORCE_PASSWORD_CHANGE
+```
+
+Passwords, tokens and API keys are never logged. Form values and authentication headers are hidden, and successful login and key-creation responses are logged without their body. Error bodies are always logged. At startup the script also logs the effective settings, tool versions and whether the service account may `get`, `create` and `patch` secrets.
+
+When the script stops with a message about the admin account, look at the `default admin probe` lines: they show the exact status and body Dependency-Track returned. Common causes:
+
+- **HTTP 406 on login:** the request's `Accept` header excludes `text/plain`, which the login endpoint produces. The script sends `Accept: */*` for this reason.
+- **`INVALID_CREDENTIALS` forever:** the admin password was changed already. Pass `DTRACK_ADMIN_PASSWORD` or `DTRACK_ADMIN_API_KEY`.
+- **HTTP 404 on `/api/version`:** `DTRACK_URL` points at the frontend or the wrong path. It must reach the API server.
 
 ## Status
 
